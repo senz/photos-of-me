@@ -52,17 +52,22 @@ def photos_of_me(username, password, wait):
 
         python photos-of-me.py me@mydomain.com $FB_PASSWORD
     """
-    # Start the photo processing thread.
+    # Create photo processing thread.
     thread = threading.Thread(target=process_photos)
-    thread.start()
     # Prep the browser.
     driver = chrome_driver()
     sign_in_to_facebook(driver, username, password)
     go_to_first_photo(driver)
-    # Start scraping.
-    for photo in photos(driver, wait):
-        photo_queue.put(photo)
-        logging.info("Put photo in queue")
+    try:
+        thread.start()
+        # Start scraping.
+        for photo in photos(driver, wait):
+            photo_queue.put(photo)
+            logging.info("Put photo in queue")
+        photo_queue.put(Sentinel)
+    except KeyboardInterrupt:
+        photo_queue.put(Sentinel)
+    thread.join()
 
 
 def chrome_driver():
@@ -158,12 +163,13 @@ def photos(driver, wait):
 
 
 def process_photos():
-    logging.info("Started photo processing thread")
+    logging.info("Photo processing thread started")
     while True:
         photo = photo_queue.get()
         if photo is Sentinel:
             break
         logging.info("Processed %s", photo["url"])
+    logging.info("Photo processing complete")
 
 
 if __name__ == "__main__":
