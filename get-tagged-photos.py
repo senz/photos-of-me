@@ -1,4 +1,5 @@
 import logging
+import queue
 import random
 import time
 
@@ -28,20 +29,21 @@ WAIT_TIMEOUT = 10
     help="Wait a random amount of time between requests",
 )
 def photos_of_me(username, password, wait):
-    """Gets "photos of me" from Facebook.
+    """Gets "photos of me" from Facebook with credentials USERNAME and PASSWORD.
 
-    Authenticates with USERNAME and PASSWORD.
+    DON'T supply your PASSWORD as a command line argument! Set the FB_PASSWORD
+    environment variable instead:
+
+        read -s FB_PASSWORD
+
+        (Type your password, and then press <ENTER>.)
+
+        python photos-of-me.py me@mydomain.com $FB_PASSWORD
     """
     driver = chrome_driver()
     sign_in_to_facebook(driver, username, password)
     go_to_first_photo(driver)
-
-    count = 5
     for photo in photos(driver, wait):
-        if count < 0:
-            break
-        else:
-            count -= 1
         print(photo)
 
 
@@ -135,7 +137,6 @@ def photos(driver, wait):
         except NoSuchElementException:
             logging.info("Can't find a Next to click")
             break
-    raise Exception()
 
 
 if __name__ == "__main__":
