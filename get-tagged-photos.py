@@ -1,6 +1,7 @@
 import logging
 import queue
 import random
+import threading
 import time
 
 import click
@@ -12,11 +13,22 @@ from selenium.webdriver.common.touch_actions import TouchActions
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait as Wait
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger()
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s:%(levelname)s:%(name)s:%(threadName)s:%(message)s",
+)
 
 # WebDriverWait timeout in seconds.
 WAIT_TIMEOUT = 10
+
+# Queue for processing scraped photos.
+photo_queue = queue.SimpleQueue()
+
+
+class Sentinel:
+    """Indicates no more items in queue."""
+
+    pass
 
 
 @click.command()
@@ -40,11 +52,17 @@ def photos_of_me(username, password, wait):
 
         python photos-of-me.py me@mydomain.com $FB_PASSWORD
     """
+    # Start the photo processing thread.
+    thread = threading.Thread(target=process_photos)
+    thread.start()
+    # Prep the browser.
     driver = chrome_driver()
     sign_in_to_facebook(driver, username, password)
     go_to_first_photo(driver)
+    # Start scraping.
     for photo in photos(driver, wait):
-        print(photo)
+        photo_queue.put(photo)
+        logging.info("Put photo in queue")
 
 
 def chrome_driver():
@@ -60,7 +78,6 @@ def chrome_driver():
 
 def sign_in_to_facebook(driver, username, password):
     """Signs in to Facebook with `username` and `password`."""
-    logger.info("Signing in to Bookface")
     driver.get("https://m.facebook.com/")
     driver.find_element_by_css_selector("input[name='email']").send_keys(username)
     driver.find_element_by_css_selector("input[name='pass']").send_keys(password)
@@ -68,13 +85,13 @@ def sign_in_to_facebook(driver, username, password):
     # Wait until title changes.
     title = driver.title
     Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
-    # Then just go here again to skip that "one tap" bullshit.
+    # Then just go here again to skip that "one tap login" bullshit.
     driver.get("https://m.facebook.com/")
+    logging.info("Signed in to Bookface")
 
 
 def go_to_first_photo(driver):
     """Navigates to first photo of you."""
-    logger.info("Clicking through to first photo in 'photos of you'")
     wait = Wait(driver, timeout=WAIT_TIMEOUT)
     wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "i.profpic"))).click()
     wait.until(
@@ -83,6 +100,7 @@ def go_to_first_photo(driver):
     wait.until(
         EC.element_to_be_clickable((By.CSS_SELECTOR, "div.timeline.photos > span > a"))
     ).click()
+    logging.info("Arrived at first photo of you")
 
 
 def get_photo(driver):
@@ -104,6 +122,7 @@ def tap_next_photo(driver):
             "//a[@data-sigil='touchable']/span[text()='Next']/.."
         )
     ).perform()
+    logging.info("Tapped on next photo")
 
 
 def photos(driver, wait):
@@ -132,11 +151,19 @@ def photos(driver, wait):
         except TimeoutException:
             logging.warning('"View full size" link did not appear')
         try:
-            logging.info("Going to next photo")
             tap_next_photo(driver)
         except NoSuchElementException:
-            logging.info("Can't find a Next to click")
+            logging.info("Can't find a next photo to tap")
             break
+
+
+def process_photos():
+    logging.info("Started photo processing thread")
+    while True:
+        photo = photo_queue.get()
+        if photo is Sentinel:
+            break
+        logging.info("Processed %s", photo["url"])
 
 
 if __name__ == "__main__":
