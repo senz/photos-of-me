@@ -1,21 +1,54 @@
 import logging
+import random
+import time
 
-import argparse, os, time, wget, json, piexif, ssl, urllib
+import click
 import selenium.webdriver as webdriver
 import selenium.webdriver.chrome.options as chrome_options
-from selenium.common.exceptions import NoSuchElementException
-from dateutil.parser import parse
-from datetime import datetime
-from datetime import timedelta
-
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.touch_actions import TouchActions
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait as Wait
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
 
+# WebDriverWait timeout in seconds.
+WAIT_TIMEOUT = 10
 
-def configure_driver():
+
+@click.command()
+@click.argument("username")
+@click.argument("password", envvar="FB_PASSWORD")
+@click.option(
+    "--wait",
+    default=True,
+    type=bool,
+    help="Wait a random amount of time between requests",
+)
+def photos_of_me(username, password, wait):
+    """Gets "photos of me" from Facebook.
+
+    Authenticates with USERNAME and PASSWORD.
+    """
+    driver = chrome_driver()
+    sign_in_to_facebook(driver, username, password)
+    go_to_first_photo(driver)
+
+    count = 5
+    for photo in photos(driver, wait):
+        if count < 0:
+            break
+        else:
+            count -= 1
+        print(photo)
+
+
+def chrome_driver():
     """Returns instance of Chrome webdriver."""
     options = chrome_options.Options()
+    options.add_experimental_option("w3c", False)
     options.add_argument("--disable-notifications")
     options.add_argument("--disable-infobars")
     options.add_argument("--mute-audio")
@@ -26,26 +59,28 @@ def configure_driver():
 def sign_in_to_facebook(driver, username, password):
     """Signs in to Facebook with `username` and `password`."""
     logger.info("Signing in to Bookface")
-    driver.get("https://mbasic.facebook.com/")
-    driver.find_element_by_id("m_login_email").send_keys(username)
-    driver.find_element_by_css_selector('input[type="password"]').send_keys(password)
-    driver.find_element_by_css_selector('input[name="login"]').click()
-    try:
-        # Skip "Log in with one tap" page.
-        if driver.find_element_by_css_selector("h3.o").text == "Log in with one tap":
-            logger.info("No, I don't want to log in with one tap 🚰")
-            driver.find_element_by_css_selector('a[href^="/login"]').click()
-    except NoSuchElementException:
-        logging.info('Did not encounter "Log in with one tap" page')
-        pass
+    driver.get("https://m.facebook.com/")
+    driver.find_element_by_css_selector("input[name='email']").send_keys(username)
+    driver.find_element_by_css_selector("input[name='pass']").send_keys(password)
+    driver.find_element_by_css_selector("button[name='login']").click()
+    # Wait until title changes.
+    title = driver.title
+    Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
+    # Then just go here again to skip that "one tap" bullshit.
+    driver.get("https://m.facebook.com/")
 
 
 def go_to_first_photo(driver):
     """Navigates to first photo of you."""
     logger.info("Clicking through to first photo in 'photos of you'")
-    driver.find_element_by_css_selector('a[href^="/menu"]').click()
-    driver.find_element_by_link_text("Photos").click()
-    driver.find_element_by_css_selector("a.cn.co.cp").click()
+    wait = Wait(driver, timeout=WAIT_TIMEOUT)
+    wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "i.profpic"))).click()
+    wait.until(
+        EC.element_to_be_clickable((By.CSS_SELECTOR, "div.scrollAreaBody > a"))
+    ).click()
+    wait.until(
+        EC.element_to_be_clickable((By.CSS_SELECTOR, "div.timeline.photos > span > a"))
+    ).click()
 
 
 def get_photo(driver):
@@ -60,108 +95,48 @@ def get_photo(driver):
     }
 
 
-def photos(driver):
-    """Generates photo details."""
-    # Loop until there is no "Next" link to click.
-    try:
-        while True:
+def tap_next_photo(driver):
+    """Taps next photo button."""
+    TouchActions(driver).tap(
+        driver.find_element_by_xpath(
+            "//a[@data-sigil='touchable']/span[text()='Next']/.."
+        )
+    ).perform()
+
+
+def photos(driver, wait):
+    """Generates photo details.
+
+    Wait a random amount of time between requests if `wait` is True.
+    """
+    # Loop until there is no "Next" button to click --  I assume this would
+    # mean the end of photos.
+    while True:
+        if wait:
+            time.sleep(random.random() + 0.3)
+        try:
+            # Wait for "View full size" link.
+            Wait(driver, timeout=WAIT_TIMEOUT).until(
+                EC.element_to_be_clickable(
+                    (
+                        By.LINK_TEXT,
+                        "View full size",
+                    )
+                )
+            )
             photo = get_photo(driver)
             logging.debug(photo)
             yield photo
+        except TimeoutException:
+            logging.warning('"View full size" link did not appear')
+        try:
             logging.info("Going to next photo")
-            driver.find_element_by_css_selector("td.w > a").click()
-    except NoSuchElementException:
-        logging.info("Reached the last photo, or some other page")
-        pass
-
-
-def download_photos():
-    ssl._create_default_https_context = ssl._create_unverified_context
-    # Prep the download folder
-    folder = "photos/"
-    if not os.path.exists(folder):
-        os.makedirs(folder)
-    print("Saving photos to " + folder)
-    # Download the photos
-    with open("tagged.json") as json_file:
-        data = json.load(json_file)
-        for i, d in enumerate(data["tagged"]):
-            if d["media_type"] == "image":
-                # Save new file
-                if d["fb_date"] == "Today":
-                    filename_date = datetime.today().strftime("%Y-%m-%d")
-                elif d["fb_date"] == "Yesterday":
-                    filename_date = datetime.today() - timedelta(days=1)
-                    filename_date = filename_date.strftime("%Y-%m-%d")
-                else:
-                    filename_date = parse(d["fb_date"]).strftime("%Y-%m-%d")
-                img_id = d["media_url"].split("_")[1]
-                new_filename = folder + filename_date + "_" + img_id + ".jpg"
-                if os.path.exists(new_filename):
-                    print("Already Exists (Skipping): %s" % (new_filename))
-                else:
-                    delay = 1
-
-                    while True:
-                        try:
-                            print("Downloading " + d["media_url"])
-                            img_file = wget.download(
-                                d["media_url"], new_filename, False
-                            )
-                            break
-                        except (TimeoutError, urllib.error.URLError) as e:
-                            print("Sleeping for {} seconds".format(delay))
-                            time.sleep(delay)
-                            delay *= 2
-                    # Update EXIF Date Created
-                    exif_dict = piexif.load(img_file)
-                    if d["fb_date"] == "Today":
-                        exif_date = datetime.today().strftime("%Y:%m:%d %H:%M:%S")
-                    elif d["fb_date"] == "Yesterday":
-                        exif_date = datetime.today() - timedelta(days=1)
-                        exif_date = exif_date.strftime("%Y:%m:%d %H:%M:%S")
-                    else:
-                        exif_date = parse(d["fb_date"]).strftime("%Y:%m:%d %H:%M:%S")
-                    img_desc = (
-                        d["fb_caption"]
-                        + "\n"
-                        + d["fb_tags"]
-                        + "\n"
-                        + d["fb_url"].split("&")[0]
-                    )
-                    exif_dict["Exif"][piexif.ExifIFD.DateTimeOriginal] = exif_date
-                    exif_dict["0th"][piexif.ImageIFD.Copyright] = (
-                        d["user_name"] + " (" + d["user_url"]
-                    ) + ")"
-                    exif_dict["0th"][
-                        piexif.ImageIFD.ImageDescription
-                    ] = img_desc.encode("utf-8")
-
-                    piexif.insert(piexif.dump(exif_dict), img_file)
-                    print(str(i + 1) + ") Added " + new_filename)
+            tap_next_photo(driver)
+        except NoSuchElementException:
+            logging.info("Can't find a Next to click")
+            break
+    raise Exception()
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Facebook Scraper")
-    parser.add_argument("-u", type=str, help="FB Username")
-    parser.add_argument("-p", type=str, help="FB Password")
-    parser.add_argument("--download", action="store_true", help="Download photos only")
-    parser.add_argument("--index", action="store_true", help="Index photos")
-    args = parser.parse_args()
-    try:
-        if args.download:
-            download_photos()
-        else:
-            if not (args.u and args.p):
-                print("Please try again with FB credentials (use -u -p)")
-            else:
-                driver = configure_driver()
-                sign_in_to_facebook(driver, args.u, args.p)
-                go_to_first_photo(driver)
-                for photo in photos(driver):
-                    print(photo)
-    except KeyboardInterrupt:
-        print(
-            "\nThanks for using the script! Please raise any issues at: https://github.com/jcontini/fb-photo-downloader/issues/new"
-        )
-        pass
+    photos_of_me()
