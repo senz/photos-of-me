@@ -1,158 +1,78 @@
-import argparse, sys, os, time, wget, json, piexif, ssl, urllib
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common import exceptions
+import logging
+
+import argparse, os, time, wget, json, piexif, ssl, urllib
+import selenium.webdriver as webdriver
+import selenium.webdriver.chrome.options as chrome_options
+from selenium.common.exceptions import NoSuchElementException
 from dateutil.parser import parse
 from datetime import datetime
 from datetime import timedelta
 
 
-def start_session(username, password):
-    print("Opening Browser...")
-    wd_options = Options()
-    wd_options.add_argument("--disable-notifications")
-    wd_options.add_argument("--disable-infobars")
-    wd_options.add_argument("--mute-audio")
-    wd_options.add_argument("--start-maximized")
-    driver = webdriver.Chrome(chrome_options=wd_options)
-
-    # Login
-    driver.get("https://www.facebook.com/")
-    print("Logging In...")
-    email_id = driver.find_element_by_id("email")
-    pass_id = driver.find_element_by_id("pass")
-    email_id.send_keys(username)
-    pass_id.send_keys(password)
-    driver.find_element_by_id("loginbutton").click()
-
-    return driver
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger()
 
 
-def index_photos():
-    # Set waits (go higher if slow internet)
-    wait = WebDriverWait(driver, 10)
-    main_wait = 1
-    stuck_wait = 3
+def configure_driver():
+    """Returns instance of Chrome webdriver."""
+    options = chrome_options.Options()
+    options.add_argument("--disable-notifications")
+    options.add_argument("--disable-infobars")
+    options.add_argument("--mute-audio")
+    options.add_argument("--start-maximized")
+    return webdriver.Chrome(options=options)
 
-    # Nav to photos I'm tagged in page
-    print("Navigating to photos of you...")
-    profile_url = driver.find_elements_by_css_selector(
-        '[data-type="type_user"] a:nth-child(2)'
-    )[0].get_attribute("href")
-    photos_url = (
-        "https://www.facebook.com"
-        + profile_url.split("com")[1].split("?")[0]
-        + "/photos_of"
-    )
-    driver.get(photos_url)
-    print("Scanning Photos...")
-    wait.until(EC.presence_of_element_located((By.CLASS_NAME, "uiMediaThumbImg")))
-    driver.find_elements_by_css_selector(".uiMediaThumbImg")[0].click()
-    time.sleep(2)
 
-    # Prep structure
-    data = {}
-    data["tagged"] = []
+def sign_in_to_facebook(driver, username, password):
+    """Signs in to Facebook with `username` and `password`."""
+    logger.info("Signing in to Bookface")
+    driver.get("https://mbasic.facebook.com/")
+    driver.find_element_by_id("m_login_email").send_keys(username)
+    driver.find_element_by_css_selector('input[type="password"]').send_keys(password)
+    driver.find_element_by_css_selector('input[name="login"]').click()
+    try:
+        # Skip "Log in with one tap" page.
+        if driver.find_element_by_css_selector("h3.o").text == "Log in with one tap":
+            logger.info("No, I don't want to log in with one tap 🚰")
+            driver.find_element_by_css_selector('a[href^="/login"]').click()
+    except NoSuchElementException:
+        logging.info('Did not encounter "Log in with one tap" page')
+        pass
 
-    while True:
-        time.sleep(main_wait)
-        try:
-            user = wait.until(
-                EC.presence_of_element_located(
-                    (By.XPATH, '//*[@id="fbPhotoSnowliftAuthorName"]//a')
-                )
-            )
-            media_url = wait.until(
-                EC.presence_of_element_located((By.XPATH, "//img[@class='spotlight']"))
-            ).get_attribute("src")
-            is_video = "showVideo" in driver.find_element_by_css_selector(
-                ".stageWrapper"
-            ).get_attribute("class")
-        except exceptions.StaleElementReferenceException:
-            continue
 
-        doc = {
-            "fb_url": driver.current_url,
-            "fb_date": wait.until(
-                EC.presence_of_element_located((By.CLASS_NAME, "timestampContent"))
-            ).text,
-            "fb_caption": wait.until(
-                EC.presence_of_element_located(
-                    (By.XPATH, '//*[@id="fbPhotoSnowliftCaption"]')
-                )
-            ).text,
-            "fb_tags": wait.until(
-                EC.presence_of_element_located(
-                    (By.XPATH, '//*[@id="fbPhotoSnowliftTagList"]')
-                )
-            ).text.replace("\u2014 ", ""),
-            "media_url": media_url,
-            "media_type": "video" if is_video else "image",
-            "user_name": user.text,
-            "user_url": user.get_attribute("href"),
-            "user_id": user.get_attribute("data-hovercard")
-            .split("id=")[1]
-            .split("&")[0],
-        }
+def go_to_first_photo(driver):
+    """Navigates to first photo of you."""
+    logger.info("Clicking through to first photo in 'photos of you'")
+    driver.find_element_by_css_selector('a[href^="/menu"]').click()
+    driver.find_element_by_link_text("Photos").click()
+    driver.find_element_by_css_selector("a.cn.co.cp").click()
 
-        # Check to see if photo didn't refresh or if last photo
-        if len(data["tagged"]) > 0:
-            if (doc["media_type"] == "image") and (
-                data["tagged"][-1]["media_url"] == doc["media_url"]
-            ):
-                print(
-                    "Photo stuck. Waiting %s seconds..." % (stuck_wait),
-                    end="",
-                    flush=True,
-                )
-                time.sleep(stuck_wait)
-                photo_now = driver.find_element(
-                    By.XPATH, "//img[@class='spotlight']"
-                ).get_attribute("src")
-                if data["tagged"][-1]["media_url"] == photo_now:
-                    print("Still stuck. Clicking Next again...", end="", flush=True)
-                    wait.until(
-                        EC.presence_of_element_located(
-                            (By.CSS_SELECTOR, ".snowliftPager.next")
-                        )
-                    ).click()
-                    print("Got it. Scanning the page again...")
-                    continue
-                print("OK, that worked. Moving on...")
 
-            if driver.current_url == data["tagged"][0]["fb_url"]:
-                print("-" * 20 + "Done Indexing! Last Photo: %s" % (driver.current_url))
-                break
+def get_photo(driver):
+    """Scrapes photo details from page."""
+    return {
+        "actor": driver.find_element_by_css_selector("strong.actor").text,
+        "url": driver.find_element_by_link_text("View full size").get_attribute("href"),
+        "caption": driver.find_element_by_xpath(
+            "//div[@id='voice_replace_id']/.."
+        ).text,
+        "date": driver.find_element_by_css_selector("abbr").text,
+    }
 
-        # Get album if present
-        if (
-            len(
-                driver.find_elements_by_xpath(
-                    '//*[@class="fbPhotoMediaTitleNoFullScreen"]/div/a'
-                )
-            )
-            > 0
-        ):
-            doc["album"] = driver.find_element_by_xpath(
-                '//*[@class="fbPhotoMediaTitleNoFullScreen"]/div/a'
-            ).get_attribute("href")
 
-        # Get Deets & move on
-        print(
-            "%s) %s // %s" % (len(data["tagged"]) + 1, doc["fb_date"], doc["fb_tags"])
-        )
-        data["tagged"].append(doc)
-        wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, ".snowliftPager.next"))
-        ).click()
-
-        # Save JSON deets
-        with open("tagged.json", "w") as f:
-            json.dump(data, f, indent=4)
-        f.close()
+def photos(driver):
+    """Generates photo details."""
+    # Loop until there is no "Next" link to click.
+    try:
+        while True:
+            photo = get_photo(driver)
+            logging.debug(photo)
+            yield photo
+            logging.info("Going to next photo")
+            driver.find_element_by_css_selector("td.w > a").click()
+    except NoSuchElementException:
+        logging.info("Reached the last photo, or some other page")
+        pass
 
 
 def download_photos():
@@ -235,10 +155,11 @@ if __name__ == "__main__":
             if not (args.u and args.p):
                 print("Please try again with FB credentials (use -u -p)")
             else:
-                driver = start_session(args.u, args.p)
-                index_photos()
-                if not args.index:
-                    download_photos()
+                driver = configure_driver()
+                sign_in_to_facebook(driver, args.u, args.p)
+                go_to_first_photo(driver)
+                for photo in photos(driver):
+                    print(photo)
     except KeyboardInterrupt:
         print(
             "\nThanks for using the script! Please raise any issues at: https://github.com/jcontini/fb-photo-downloader/issues/new"
