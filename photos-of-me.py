@@ -1,10 +1,12 @@
 import logging
+import pathlib
 import queue
 import random
 import threading
 import time
 
 import click
+import requests
 import selenium.webdriver as webdriver
 import selenium.webdriver.chrome.options as chrome_options
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
@@ -34,14 +36,16 @@ class Sentinel:
 @click.command()
 @click.argument("username")
 @click.argument("password", envvar="FB_PASSWORD")
+@click.argument("directory", type=click.Path(exists=True))
 @click.option(
     "--wait",
     default=True,
     type=bool,
     help="Wait a random amount of time between requests",
 )
-def photos_of_me(username, password, wait):
-    """Gets "photos of me" from Facebook with credentials USERNAME and PASSWORD.
+def photos_of_me(username, password, directory, wait):
+    """Download "photos of me" to DIRECTORY, using Facebook credentials
+    USERNAME and PASSWORD.
 
     DON'T supply your PASSWORD as a command line argument! Set the FB_PASSWORD
     environment variable instead:
@@ -53,7 +57,7 @@ def photos_of_me(username, password, wait):
         python photos-of-me.py me@mydomain.com $FB_PASSWORD
     """
     # Create photo processing thread.
-    thread = threading.Thread(target=process_photos)
+    thread = threading.Thread(target=process_photo_queue, args=(directory,))
     # Prep the browser.
     driver = chrome_driver()
     sign_in_to_facebook(driver, username, password)
@@ -162,14 +166,21 @@ def photos(driver, wait):
             break
 
 
-def process_photos():
+def process_photo_queue(directory):
+    """Write photos in queue to `directory."""
     logging.info("Photo processing thread started")
     while True:
         photo = photo_queue.get()
         if photo is Sentinel:
             break
-        logging.info("Processed %s", photo["url"])
+        process(photo, directory)
+        logging.info("Processed %s", photo)
     logging.info("Photo processing complete")
+
+
+def process(photo, directory):
+    """Write photo to directory, with metadata."""
+    pass
 
 
 if __name__ == "__main__":
