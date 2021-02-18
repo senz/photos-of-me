@@ -53,6 +53,17 @@ optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
 
 [[package]]
+name = "exif"
+version = "1.2.0"
+description = "Read and modify image EXIF metadata using Python."
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+plum-py = "0.3.1"
+
+[[package]]
 name = "idna"
 version = "2.10"
 description = "Internationalized Domain Names in Applications (IDNA)"
@@ -75,6 +86,18 @@ description = "Utility library for gitignore style pattern matching of file path
 category = "dev"
 optional = false
 python-versions = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*"
+
+[[package]]
+name = "plum-py"
+version = "0.3.1"
+description = "Pack/Unpack Memory."
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.extras]
+test = ["baseline", "pytest", "pytest-cov", "pytest-html"]
+doc = ["Sphinx (>=1.6.7)", "sphinx-rtd-theme", "sphinxcontrib-programoutput"]
 
 [[package]]
 name = "python-dateutil"
@@ -172,7 +195,7 @@ socks = ["PySocks (>=1.5.6,!=1.5.7,<2.0)"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8"
-content-hash = "3ce3e6213fe253c99e72305b1ff51a98166bb69442e5562cc02895fa5c4f1010"
+content-hash = "ee3869f970736824c0a40d6a9fbbe63bfed74f36e88c3a20d4bff6fe322b169a"
 
 [metadata.files]
 appdirs = [
@@ -194,6 +217,10 @@ click = [
     {file = "click-7.1.2-py2.py3-none-any.whl", hash = "sha256:dacca89f4bfadd5de3d7489b7c8a566eee0d3676333fbb50030263894c38c0dc"},
     {file = "click-7.1.2.tar.gz", hash = "sha256:d2b5255c7c6349bc1bd1e59e08cd12acbbd63ce649f2588755783aa94dfb6b1a"},
 ]
+exif = [
+    {file = "exif-1.2.0-py3-none-any.whl", hash = "sha256:8048013fd8c8a753d282ffe72fc3006f7416991190ab3f62a6ab801eb68cb0a7"},
+    {file = "exif-1.2.0.tar.gz", hash = "sha256:a2dc1928993291ba10932a611a416eacedb72755898344b2827fb0afec68f40b"},
+]
 idna = [
     {file = "idna-2.10-py2.py3-none-any.whl", hash = "sha256:b97d804b1e9b523befed77c48dacec60e6dcb0b5391d57af6a65a312a90648c0"},
     {file = "idna-2.10.tar.gz", hash = "sha256:b307872f855b18632ce0c21c5e45be78c0ea7ae4c15c828c20788b26921eb3f6"},
@@ -205,6 +232,9 @@ mypy-extensions = [
 pathspec = [
     {file = "pathspec-0.8.1-py2.py3-none-any.whl", hash = "sha256:aa0cb481c4041bf52ffa7b0d8fa6cd3e88a2ca4879c533c9153882ee2556790d"},
     {file = "pathspec-0.8.1.tar.gz", hash = "sha256:86379d6b86d75816baba717e64b1a3a3469deb93bb76d613c9ce79edc5cb68fd"},
+]
+plum-py = [
+    {file = "plum_py-0.3.1-py3-none-any.whl", hash = "sha256:9328ec7502046134c5f16b04d85947559006e200d7268b7d5ed30f88735a48e5"},
 ]
 python-dateutil = [
     {file = "python-dateutil-2.8.1.tar.gz", hash = "sha256:73ebfe9dbf22e832286dafa60473e4cd239f8592f699aa5adaf10050e6e1823c"},
