@@ -64,7 +64,7 @@ def photos_of_me(username, password, directory, wait):
         python photos-of-me.py me@mydomain.com $FB_PASSWORD
     """
     # Create photo processing thread.
-    thread = threading.Thread(target=process_photo_queue, args=(directory,))
+    thread = threading.Thread(target=process_photo_queue, args=(directory, wait))
     # Prep the browser.
     driver = chrome_driver()
     sign_in_to_facebook(driver, username, password)
@@ -177,10 +177,12 @@ def photos(driver, wait):
             break
 
 
-def process_photo_queue(directory):
+def process_photo_queue(directory, wait: bool):
     """Write photos in queue to `directory."""
     logging.info("Photo processing thread started")
     while True:
+        if wait:
+            time.sleep(random.random() + 0.3)
         photo = photo_queue.get()
         if photo is Sentinel:
             break
