@@ -1,13 +1,19 @@
+import html
 import json
 import logging
-import pathlib
 import queue
 import random
+import re
 import threading
 import time
+import urllib.parse
+from pathlib import Path
+
 
 import click
 import requests
+from requests import cookies
+from requests.models import cookiejar_from_dict
 import selenium.webdriver as webdriver
 import selenium.webdriver.chrome.options as chrome_options
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
@@ -69,6 +75,8 @@ def photos_of_me(username, password, directory, wait):
         for photo in photos(driver, wait):
             photo_queue.put(photo)
             logging.info("Put photo in queue")
+            # TODO: Remove break.
+            break
         photo_queue.put(Sentinel)
     except KeyboardInterrupt:
         photo_queue.put(Sentinel)
@@ -177,16 +185,46 @@ def process_photo_queue(directory):
         if photo is Sentinel:
             break
         process(photo, directory)
-        logging.info("Processed %s", photo)
+        logging.debug("Processed %s", photo)
     logging.info("Photo processing complete")
 
 
-def process(photo, directory):
+def get_redirect_url(url: str, cookies: list) -> str:
+    """Returns redirect URL from URL.
+
+    The "View full size" URL redirects to the *real* image.
+    """
+    session = requests.Session()
+    for cookie in cookies:
+        session.cookies.set(name=cookie["name"], value=cookie["value"])
+    text = session.get(url).text
+    try:
+        return html.unescape(re.search(pattern=r';url=(.+?)"', string=text).group(1))
+    except AttributeError:
+        logging.error("Couldn't match redirect URL in %s", text)
+        raise
+
+
+def process(photo: dict, directory: str):
     """Write photo to directory, with metadata."""
-    # response = requests.get(photos["url"])
-    pass
-    # Get name from header.
-    # Write json next to file.
+    try:
+        # Get the REAL photo URL!
+        photo_url = get_redirect_url(photo["url"], photo["cookies"])
+    except AttributeError:
+        # Not much we can do, move on.
+        return
+    # We extract a suitable photo filename from the URL.
+    filename = Path(urllib.parse.urlparse(photo_url).path).name
+    # Write photo to file.
+    photo_path = Path(directory) / filename
+    with photo_path.open(mode="wb") as file:
+        file.write(requests.get(photo_url).content)
+    logging.info("Wrote photo to %s", photo_path)
+    # Write photo information to file (JSON).
+    json_path = Path(directory) / (filename + ".json")
+    with json_path.open(mode="w") as file:
+        file.write(json.dumps(photo, indent=2))
+    logging.info("Wrote photo information to %s", json_path)
 
 
 if __name__ == "__main__":
