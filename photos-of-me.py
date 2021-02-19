@@ -1,3 +1,4 @@
+import json
 import logging
 import pathlib
 import queue
@@ -121,6 +122,8 @@ def get_photo(driver):
             "//div[@id='voice_replace_id']/.."
         ).text,
         "date": driver.find_element_by_css_selector("abbr").text,
+        # We need cookies for authenticate requests ;)
+        "cookies": driver.get_cookies(),
     }
 
 
@@ -180,7 +183,10 @@ def process_photo_queue(directory):
 
 def process(photo, directory):
     """Write photo to directory, with metadata."""
+    # response = requests.get(photos["url"])
     pass
+    # Get name from header.
+    # Write json next to file.
 
 
 if __name__ == "__main__":
