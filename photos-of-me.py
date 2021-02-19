@@ -75,8 +75,8 @@ def photos_of_me(username, password, directory, wait):
         for photo in photos(driver, wait):
             photo_queue.put(photo)
             logging.info("Put photo in queue")
-            # TODO: Remove break.
-            break
+            # Uncomment the next line to break after first photo.
+            # break
         photo_queue.put(Sentinel)
     except KeyboardInterrupt:
         photo_queue.put(Sentinel)
