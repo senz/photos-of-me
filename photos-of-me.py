@@ -17,6 +17,7 @@ import requests
 import selenium.webdriver as webdriver
 import selenium.webdriver.chrome.options as chrome_options
 from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait as Wait
 
@@ -37,15 +38,18 @@ photo_page_queue = queue.Queue()
 @click.argument("password", envvar="FB_PASSWORD")
 @click.argument("directory", type=click.Path(exists=True))
 @click.option(
-    "--workers", type=int, default=1, help="Number of concurrent worker threads"
+    "--workers",
+    type=int,
+    default=1,
+    help="Number of concurrent worker threads. "
+    "(Too many threads will result in your account being temporarily locked.)",
 )
 @click.option(
-    "--dont-wait",
-    default=False,
-    type=bool,
-    help="Don't wait a brief random amount of time between requests",
+    "--wait/--no-wait",
+    default=True,
+    help="Wait a brief random amount of time between requests.",
 )
-def photos_of_me(username, password, directory, workers: int, dont_wait: bool):
+def photos_of_me(username, password, directory, workers: int, wait: bool):
     """Download "photos of me" to DIRECTORY, using Facebook credentials
     USERNAME and PASSWORD.
 
@@ -58,23 +62,24 @@ def photos_of_me(username, password, directory, workers: int, dont_wait: bool):
 
         python photos-of-me.py me@mydomain.com $FB_PASSWORD
     """
+    driver = chrome_driver()
+    sign_in_to_facebook(driver, username, password)
+    cookies = driver.get_cookies()
     # Create worker threads to process photo URLs.
     photo_page_queue_workers = [
         threading.Thread(
             target=process_photo_page_queue,
-            args=(username, password, directory, dont_wait),
+            args=(cookies, directory, wait),
+            daemon=True,
         )
         for _ in range(workers)
     ]
     # Start the workers.
     for worker in photo_page_queue_workers:
-        if not dont_wait:
-            time.sleep(random.random() + 0.2)
         worker.start()
-    # Prep the browser.
-    driver = chrome_driver()
+    go_to_photos_of_you(driver)
     # This is the URL of the first page of "photos of you".
-    first_photos_of_you_page = get_first_photos_of_you_page(driver, username, password)
+    first_photos_of_you_page = driver.current_url
     # You can get to all "photos of you" pages by setting the offset query parameter.
     # We start with an offset of 0.
     offset = 0
@@ -82,7 +87,7 @@ def photos_of_me(username, password, directory, workers: int, dont_wait: bool):
     photo_urls = get_photo_urls(driver, photos_of_you_url)
     # Keep increasing offset until we reach a page with no photos.
     while photo_urls:
-        if not dont_wait:
+        if wait:
             time.sleep(random.random() + 0.2)
         for url in photo_urls:
             photo_page_queue.put(url)
@@ -101,15 +106,6 @@ def chrome_driver() -> webdriver.Chrome:
     options.add_argument("--disable-infobars")
     options.add_argument("--mute-audio")
     return webdriver.Chrome(options=options)
-
-
-def get_first_photos_of_you_page(
-    driver: webdriver.Chrome, username: str, password: str
-) -> str:
-    """Returns URL of first "photos of you" page."""
-    sign_in_to_facebook(driver, username, password)
-    go_to_photos_of_you(driver)
-    return driver.current_url
 
 
 def get_offset_photos_of_you_page(first_page_url: str, offset: int) -> str:
@@ -135,17 +131,6 @@ def sign_in_to_facebook(driver: webdriver.Chrome, username: str, password: str) 
     driver.find_element_by_css_selector("input[name='login']").click()
     # Wait until title changes.
     Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
-    if driver.find_elements_by_css_selector("input[type='image']"):
-        # We're in some kind of weird "one tap" universe where it's hard to sign in.
-        title = driver.title
-        driver.find_element_by_css_selector("input[type='image']").click()
-        # Wait until title changes.
-        Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
-        driver.find_element_by_css_selector("input[name='pass']").send_keys(password)
-        title = driver.title
-        driver.find_element_by_css_selector("input[type='submit']").click()
-        # Wait until title changes.
-        Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
     # Just go here again to skip that "one tap login" bullshit.
     driver.get("https://mbasic.facebook.com/")
     logging.info("Signed in to Bookface")
@@ -201,24 +186,26 @@ def get_photo_details(driver: webdriver.Chrome, url: str) -> PhotoDetails:
     )
 
 
-def process_photo_page_queue(
-    username: str, password: str, directory: str, dont_wait: bool
-):
+def process_photo_page_queue(cookies: list, directory: str, wait: bool):
     """Processes pages in photo page queue.
 
     - Spawn a Selenium webdriver
-    - Sign in to Facebook (using `username` and `password`)
+    - Sign in to Facebook (using `cookies`)
     - Process pages in queue:
         - Get photo details
-        - Write photo to `directory`
+        - Download photo
         - Write EXIF data to photo
+        - Write photo to `directory`
 
-    Wait a random amount of time between queue items if `dont_wait` is not True.
+    Wait a random amount of time between queue items if `wait` is True.
     """
     driver = chrome_driver()
-    sign_in_to_facebook(driver, username, password)
+    # First, go to a domain that cookies apply to.
+    driver.get("https://mbasic.facebook.com/")
+    for cookie in cookies:
+        driver.add_cookie(cookie)
     while True:
-        if not dont_wait:
+        if wait:
             time.sleep(random.random() + 0.2)
         page = photo_page_queue.get()
         try:
