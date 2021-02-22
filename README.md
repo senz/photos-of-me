@@ -1,49 +1,46 @@
-# Facebook Photo Downloader
-This tool lets you download all of the Facebook photos that you are tagged in. It keeps track of the dates that each photo was uploaded to Facebook, so that your photos will still be organized by date when they are added to a photo management platform like Google Photos or iPhoto.
+# photos-of-me
 
-![Metadata Example](https://raw.githubusercontent.com/jcontini/fb-photo-downloader/master/example.png)
+This repository was forked from https://github.com/jcontini/facebook-photos-download.
+
+This tool allows you to download all your "photos of you" from Facebook. Photos are populated with EXIF data to preserve dates, captions and uploader name.
+
 
 ## Installation
-You'll need to have python, pip3, and [Google Chrome WebDriver](http://chromedriver.chromium.org/downloads) installed to use this tool. Once that's all set up:
+
+You'll need
+
+- Python 3.8
+- [Poetry](https://python-poetry.org)
+- [chromedriver](http://chromedriver.chromium.org/downloads) available on `PATH`
+
+Once you have the above
 
 1. Clone this repository
-1. `cd` into the cloned folder 
-1. Run `pip install -r requirements.txt`
+2. `cd` into the cloned folder
+3. Run `poetry install`
+
 
 ## Usage
-To download your tagged photos, run this with your Facebook username & password:
 
-`python get-tagged-photos.py -u your@email.com -p yourpassword`
+```
+Usage: photos-of-me.py [OPTIONS] USERNAME PASSWORD DIRECTORY
 
-You should see Chrome open, login to Facebook, navigate to your photos page, and indexing your tagged photos & videos. Once the indexing is complete, it will download all of the photos to a `photos` folder that should appear in the same folder as the script.
+  Download "photos of me" to DIRECTORY, using Facebook credentials USERNAME
+  and PASSWORD.
 
-### Index-Only mode
+  DON'T supply your PASSWORD as a command line argument! Set the FB_PASSWORD
+  environment variable instead:
 
-If you just want to create an index of the photos so you can see the data, add the `--index` flag:
+      read -s FB_PASSWORD
 
-`python get-tagged-photos.py --index -u your@email.com -p yourpassword`
+      (Type your password, and then press <ENTER>.)
 
-### Download-Only mode
+      python photos-of-me.py me@mydomain.com $FB_PASSWORD
 
-If you already have the index and want to download the images again, you can run the script in download-only mode like this:
+Options:
+  --workers INTEGER    Number of concurrent worker threads
+  --dont-wait BOOLEAN  Don't wait a brief random amount of time between
+                       requests
 
-`python get-tagged-photos.py --download`
-
-The credentials are not needed for download-only mode because Facebook lets anyone access the photos once you have the direct URL to the photo. Facebook can expire a URL after some time though, so if there are any issues with the downloading, try indexing again first to make sure the script has the latest photo URLs.
-
-## More Details
-This script works by first creating an index of all the photos that you are tagged in with:
-
-- Date the photo was uploaded
-- Photo description (caption)
-- Names tagged in the photo
-- Facebook URL of the photo page
-- Photo URL to the actual image
-- Name, Profile URL, and user ID of the person who uploaded the photo
-
-All of this metadata is only stored on your computer, and you can see it in `tagged.json`. Once the indexing process is complete, the script will then download all of the photos to your computer, and then use this index to write the metadata to them so that it's safe with the photo file.
-
-## Thanks
-Wanted to give a shoult to the good folks who contribute pull requests to improve this project. Thank you!
-
-@nhwalton @mbologna @KyleKing
+  --help               Show this message and exit.
+```
