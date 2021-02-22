@@ -66,13 +66,15 @@ def photos_of_me(username, password, directory, workers: int, dont_wait: bool):
         )
         for _ in range(workers)
     ]
+    # Start the workers.
+    for worker in photo_page_queue_workers:
+        if not dont_wait:
+            time.sleep(random.random() + 0.2)
+        worker.start()
     # Prep the browser.
     driver = chrome_driver()
     # This is the URL of the first page of "photos of you".
     first_photos_of_you_page = get_first_photos_of_you_page(driver, username, password)
-    # Start the workers.
-    for worker in photo_page_queue_workers:
-        worker.start()
     # You can get to all "photos of you" pages by setting the offset query parameter.
     # We start with an offset of 0.
     offset = 0
@@ -95,7 +97,6 @@ def photos_of_me(username, password, directory, workers: int, dont_wait: bool):
 def chrome_driver() -> webdriver.Chrome:
     """Returns instance of Chrome webdriver."""
     options = chrome_options.Options()
-    options.add_experimental_option("w3c", False)
     options.add_argument("--disable-notifications")
     options.add_argument("--disable-infobars")
     options.add_argument("--mute-audio")
@@ -128,21 +129,32 @@ def get_offset_photos_of_you_page(first_page_url: str, offset: int) -> str:
 def sign_in_to_facebook(driver: webdriver.Chrome, username: str, password: str) -> None:
     """Signs in to Facebook with `username` and `password`."""
     driver.get("https://mbasic.facebook.com/")
-    title = driver.title
     driver.find_element_by_css_selector("input[name='email']").send_keys(username)
     driver.find_element_by_css_selector("input[name='pass']").send_keys(password)
+    title = driver.title
     driver.find_element_by_css_selector("input[name='login']").click()
     # Wait until title changes.
     Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
-    # Then just go here again to skip that "one tap login" bullshit.
+    if driver.find_elements_by_css_selector("input[type='image']"):
+        # We're in some kind of weird "one tap" universe where it's hard to sign in.
+        title = driver.title
+        driver.find_element_by_css_selector("input[type='image']").click()
+        # Wait until title changes.
+        Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
+        driver.find_element_by_css_selector("input[name='pass']").send_keys(password)
+        title = driver.title
+        driver.find_element_by_css_selector("input[type='submit']").click()
+        # Wait until title changes.
+        Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
+    # Just go here again to skip that "one tap login" bullshit.
     driver.get("https://mbasic.facebook.com/")
     logging.info("Signed in to Bookface")
 
 
 def go_to_photos_of_you(driver: webdriver.Chrome) -> None:
     """Navigates to first page of "photos of you"."""
-    # Click "Menu" link.
-    driver.find_element_by_css_selector("a[accesskey='5']").click()
+    # Go to "Menu".
+    driver.get("https://mbasic.facebook.com/menu/bookmarks/")
     # Click "Photos" link.
     driver.find_element_by_css_selector("div.bq > div:nth-child(2) > a").click()
     # Click "See All (XXX)" link.
