@@ -7,7 +7,7 @@ import threading
 import time
 import urllib.parse
 from pathlib import Path
-from typing import List
+from typing import List, NamedTuple
 
 
 import click
@@ -178,21 +178,27 @@ def get_photo_urls(driver: webdriver.Chrome, url: str) -> List[str]:
     return urls
 
 
-def get_photo_details(driver: webdriver.Chrome, url: str) -> dict:
+class PhotoDetails(NamedTuple):
+    actor: str
+    caption: str
+    date: str
+    full_size_url: str
+    cookies: list
+
+
+def get_photo_details(driver: webdriver.Chrome, url: str) -> PhotoDetails:
     """Returns photo details from photo page `url`."""
     driver.get(url)
-    return {
-        "actor": driver.find_element_by_css_selector("strong.actor").text,
-        "caption": driver.find_element_by_xpath(
-            "//div[@id='voice_replace_id']/.."
-        ).text,
-        "date": driver.find_element_by_css_selector("abbr").text,
-        "full_size_url": driver.find_element_by_link_text(
-            "View full size"
-        ).get_attribute("href"),
+    return PhotoDetails(
+        actor=driver.find_element_by_css_selector("strong.actor").text,
+        caption=driver.find_element_by_xpath("//div[@id='voice_replace_id']/..").text,
+        date=driver.find_element_by_css_selector("abbr").text,
+        full_size_url=driver.find_element_by_link_text("View full size").get_attribute(
+            "href"
+        ),
         # We need cookies for authenticated requests ;)
-        "cookies": driver.get_cookies(),
-    }
+        cookies=driver.get_cookies(),
+    )
 
 
 def process_photo_page_queue(
@@ -218,7 +224,7 @@ def process_photo_page_queue(
         try:
             details = get_photo_details(driver, page)
             # Get the REAL photo URL!
-            photo_url = get_photo_url(details["full_size_url"], details["cookies"])
+            photo_url = get_photo_url(details.full_size_url, details.cookies)
             # Extract a suitable photo filename from the URL.
             filename = Path(urllib.parse.urlparse(photo_url).path).name
             photo_path = Path(directory) / filename
@@ -226,9 +232,7 @@ def process_photo_page_queue(
             if not photo_path.exists():
                 photo = requests.get(photo_url).content
                 photo_path.open(mode="wb").write(
-                    with_exif_data(
-                        photo, details["actor"], details["caption"], details["date"]
-                    )
+                    with_exif_data(photo, details.actor, details.caption, details.date)
                 )
             else:
                 logging.info("Photo already exists, skipping (%s)", photo_path)
