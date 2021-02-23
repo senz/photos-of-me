@@ -30,7 +30,7 @@ logging.basicConfig(
 WAIT_TIMEOUT = 10
 
 # Queue of URLs to photo pages.
-photo_page_queue = queue.Queue()
+photo_page_queue = queue.SimpleQueue()
 
 
 class Sentinel(object):
@@ -248,7 +248,6 @@ def process_photo_page_queue(cookies: list, directory: str, wait: bool):
             # This is raised if a photo page doesn't contain media details.
             # Ignore, and move on to next item in queue.
             logging.error("Error scraping details from photo page %s", page)
-            photo_page_queue.task_done()
             continue
         if media.type == "photo":
             try:
@@ -259,7 +258,6 @@ def process_photo_page_queue(cookies: list, directory: str, wait: bool):
                 pass
         elif media.type == "video":
             download_video(media, directory=directory)
-            photo_page_queue.task_done()
             logging.info("Processed %s", page)
 
 
