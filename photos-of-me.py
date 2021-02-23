@@ -33,6 +33,12 @@ WAIT_TIMEOUT = 10
 photo_page_queue = queue.Queue()
 
 
+class Sentinel(object):
+    """Indicates no more items in queue."""
+
+    pass
+
+
 @click.command()
 @click.argument("username")
 @click.argument("password", envvar="FB_PASSWORD")
@@ -96,7 +102,9 @@ def photos_of_me(username, password, directory, workers: int, wait: bool):
             first_photos_of_you_page, offset
         )
         photo_urls = get_photo_urls(driver, photos_of_you_url)
-    photo_page_queue.join()
+    photo_page_queue.put(Sentinel)
+    for worker in photo_page_queue_workers:
+        worker.join()
 
 
 def chrome_driver() -> webdriver.Chrome:
@@ -230,6 +238,10 @@ def process_photo_page_queue(cookies: list, directory: str, wait: bool):
         if wait:
             time.sleep(random.random() + 0.2)
         page = photo_page_queue.get()
+        if page is Sentinel:
+            photo_page_queue.put(Sentinel)
+            logging.info("Reached end of queue")
+            break
         try:
             media = get_media_details(driver, page)
         except NoSuchElementException:
