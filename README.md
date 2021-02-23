@@ -35,7 +35,7 @@ Usage: photos-of-me.py [OPTIONS] USERNAME PASSWORD DIRECTORY
 
       (Type your password, and then press <ENTER>.)
 
-      python photos-of-me.py me@mydomain.com $FB_PASSWORD
+      python photos-of-me.py me@mydomain.com $FB_PASSWORD photos
 
 Options:
   --workers INTEGER   Number of concurrent worker threads (default is 1).
