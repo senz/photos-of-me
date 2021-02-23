@@ -47,20 +47,25 @@ class Sentinel(object):
     "--workers",
     type=int,
     default=1,
-    help="Number of concurrent worker threads. "
-    "(Too many threads will result in your account being temporarily locked.)",
+    help="Number of concurrent worker threads (default is 1).",
 )
 @click.option(
     "--wait/--no-wait",
     default=True,
-    help="Wait a brief random amount of time between requests.",
+    help="Wait a brief random amount of time between requests (default is wait).",
 )
-def photos_of_me(username, password, directory, workers: int, wait: bool):
+@click.option(
+    "--offset",
+    default=0,
+    type=int,
+    help="Initial photo offset (default is 0).",
+)
+def photos_of_me(username, password, directory, workers: int, wait: bool, offset: int):
     """Download "photos of me" to DIRECTORY, using Facebook credentials
     USERNAME and PASSWORD.
 
-    DON'T supply your PASSWORD as a command line argument! Set the FB_PASSWORD
-    environment variable instead:
+    Instead of supplying PASSWORD on the command line, you can set the FB_PASSWORD
+    environment variable:
 
         read -s FB_PASSWORD
 
@@ -87,8 +92,6 @@ def photos_of_me(username, password, directory, workers: int, wait: bool):
     # This is the URL of the first page of "photos of you".
     first_photos_of_you_page = driver.current_url
     # You can get to all "photos of you" pages by setting the offset query parameter.
-    # We start with an offset of 0.
-    offset = 0
     photos_of_you_url = get_offset_photos_of_you_page(first_photos_of_you_page, offset)
     photo_urls = get_photo_urls(driver, photos_of_you_url)
     # Keep increasing offset until we reach a page with no photos.
@@ -103,6 +106,7 @@ def photos_of_me(username, password, directory, workers: int, wait: bool):
         )
         photo_urls = get_photo_urls(driver, photos_of_you_url)
     photo_page_queue.put(Sentinel)
+    driver.close()
     for worker in photo_page_queue_workers:
         worker.join()
 

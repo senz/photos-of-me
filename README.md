@@ -7,13 +7,13 @@ This tool allows you to download all your "photos of you" from Facebook. Photos 
 
 ## Installation
 
-You'll need
+Get the following:
 
-- Python 3.8
+- Python 3.8+
 - [Poetry](https://python-poetry.org)
 - [chromedriver](http://chromedriver.chromium.org/downloads) available on `PATH`
 
-Once you have the above
+Then do the following:
 
 1. Clone this repository
 2. `cd` into the cloned folder
@@ -28,8 +28,8 @@ Usage: photos-of-me.py [OPTIONS] USERNAME PASSWORD DIRECTORY
   Download "photos of me" to DIRECTORY, using Facebook credentials USERNAME
   and PASSWORD.
 
-  DON'T supply your PASSWORD as a command line argument! Set the FB_PASSWORD
-  environment variable instead:
+  Instead of supplying PASSWORD on the command line, you can set the
+  FB_PASSWORD environment variable:
 
       read -s FB_PASSWORD
 
@@ -38,9 +38,10 @@ Usage: photos-of-me.py [OPTIONS] USERNAME PASSWORD DIRECTORY
       python photos-of-me.py me@mydomain.com $FB_PASSWORD
 
 Options:
-  --workers INTEGER    Number of concurrent worker threads
-  --dont-wait BOOLEAN  Don't wait a brief random amount of time between
-                       requests
+  --workers INTEGER   Number of concurrent worker threads (default is 1).
+  --wait / --no-wait  Wait a brief random amount of time between requests
+                      (default is wait).
 
-  --help               Show this message and exit.
+  --offset INTEGER    Initial photo offset (default is 0).
+  --help              Show this message and exit.
 ```
