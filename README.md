@@ -2,7 +2,7 @@
 
 This repository was forked from https://github.com/jcontini/facebook-photos-download.
 
-This tool allows you to download all your "photos of you" from Facebook. Photos are populated with EXIF data to preserve dates, captions and uploader name.
+This tool allows you to download all "photos of you" from Facebook (and videos too!). Photos are populated with EXIF data to preserve dates, captions and uploader name.
 
 
 ## Installation
