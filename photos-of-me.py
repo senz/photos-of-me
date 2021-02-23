@@ -163,7 +163,8 @@ def get_photo_urls(driver: webdriver.Chrome, url: str) -> List[str]:
     return urls
 
 
-class PhotoDetails(NamedTuple):
+class Media(NamedTuple):
+    type: str
     actor: str
     caption: str
     date: str
@@ -171,19 +172,40 @@ class PhotoDetails(NamedTuple):
     cookies: list
 
 
-def get_photo_details(driver: webdriver.Chrome, url: str) -> PhotoDetails:
-    """Returns photo details from photo page `url`."""
+def get_media_details(driver: webdriver.Chrome, url: str) -> Media:
+    """Returns media details from photo page `url`.
+
+    Can be a photo or video.
+    """
     driver.get(url)
-    return PhotoDetails(
-        actor=driver.find_element_by_css_selector("strong.actor").text,
-        caption=driver.find_element_by_xpath("//div[@id='voice_replace_id']/..").text,
-        date=driver.find_element_by_css_selector("abbr").text,
-        full_size_url=driver.find_element_by_link_text("View full size").get_attribute(
-            "href"
-        ),
-        # We need cookies for authenticated requests ;)
-        cookies=driver.get_cookies(),
-    )
+    if driver.find_elements_by_link_text("View full size"):
+        return Media(
+            type="photo",
+            actor=driver.find_element_by_css_selector("strong.actor").text,
+            caption=driver.find_element_by_xpath(
+                "//div[@id='voice_replace_id']/.."
+            ).text,
+            date=driver.find_element_by_css_selector("abbr").text,
+            full_size_url=driver.find_element_by_link_text(
+                "View full size"
+            ).get_attribute("href"),
+            # We need cookies for authenticated requests ;)
+            cookies=driver.get_cookies(),
+        )
+    else:
+        return Media(
+            type="video",
+            actor=driver.find_element_by_css_selector("strong > a").text,
+            caption=driver.find_element_by_css_selector(
+                "div> a[aria-label]"
+            ).get_attribute("aria-label"),
+            date=driver.find_element_by_css_selector("abbr").text,
+            full_size_url=driver.find_element_by_css_selector(
+                "div> a[aria-label]"
+            ).get_attribute("href"),
+            # We need cookies for authenticated requests ;)
+            cookies=driver.get_cookies(),
+        )
 
 
 def process_photo_page_queue(cookies: list, directory: str, wait: bool):
@@ -192,10 +214,10 @@ def process_photo_page_queue(cookies: list, directory: str, wait: bool):
     - Spawn a Selenium webdriver
     - Sign in to Facebook (using `cookies`)
     - Process pages in queue:
-        - Get photo details
-        - Download photo
-        - Write EXIF data to photo
-        - Write photo to `directory`
+        - Get media details
+        - Download media
+        - Write EXIF data to photo, if photo
+        - Write media to `directory`
 
     Wait a random amount of time between queue items if `wait` is True.
     """
@@ -209,31 +231,59 @@ def process_photo_page_queue(cookies: list, directory: str, wait: bool):
             time.sleep(random.random() + 0.2)
         page = photo_page_queue.get()
         try:
-            details = get_photo_details(driver, page)
-            # Get the REAL photo URL!
-            photo_url = get_photo_url(details.full_size_url, details.cookies)
-            # Extract a suitable photo filename from the URL.
-            filename = Path(urllib.parse.urlparse(photo_url).path).name
-            photo_path = Path(directory) / filename
-            # If photo does not already exist, write with EXIF data.
-            if not photo_path.exists():
-                photo = requests.get(photo_url).content
-                photo_path.open(mode="wb").write(
-                    with_exif_data(photo, details.actor, details.caption, details.date)
-                )
-            else:
-                logging.info("Photo already exists, skipping (%s)", photo_path)
+            media = get_media_details(driver, page)
         except NoSuchElementException:
-            # This is raised if a photo page doesn't contain photo details.
+            # This is raised if a photo page doesn't contain media details.
             # Ignore, and move on to next item in queue.
             logging.error("Error scraping details from photo page %s", page)
-            pass
-        except RuntimeError:
-            # This is raised if a URL can't be parsed from a photo redirect page.
-            # Ignore, and move on to next item in queue.
-            pass
-        photo_page_queue.task_done()
-        logging.info("Processed %s", page)
+            photo_page_queue.task_done()
+            continue
+        if media.type == "photo":
+            try:
+                download_photo(media, directory)
+            except RuntimeError:
+                # This is raised if a URL can't be parsed from a photo redirect page.
+                # Ignore, and move on to next item in queue.
+                pass
+        elif media.type == "video":
+            download_video(media, directory=directory)
+            photo_page_queue.task_done()
+            logging.info("Processed %s", page)
+
+
+def download_photo(photo: Media, directory: str) -> None:
+    """Downloads `photo` to `directory`."""
+    # Get the REAL photo URL!
+    url = get_photo_url(photo.full_size_url, photo.cookies)
+    # Extract a suitable media filename from the URL.
+    filename = Path(urllib.parse.urlparse(url).path).name
+    photo_path = Path(directory) / filename
+    # If photo does not already exist, write with EXIF data.
+    if not photo_path.exists():
+        photo_content = requests.get(url).content
+        photo_path.open(mode="wb").write(
+            with_exif_data(photo_content, photo.actor, photo.caption, photo.date)
+        )
+        logging.info("Wrote photo to %s", photo_path)
+    else:
+        logging.info("Photo already exists, skipping (%s)", photo_path)
+
+
+def download_video(video: Media, directory: str) -> None:
+    """Downloads `video` to `directory`."""
+    session = requests.Session()
+    for cookie in video.cookies:
+        session.cookies.set(name=cookie["name"], value=cookie["value"])
+    response = session.get(video.full_size_url)
+    # Extract a suitable media filename from the URL.
+    filename = Path(urllib.parse.urlparse(response.url).path).name
+    video_path = Path(directory) / filename
+    # Write if video does not already exist.
+    if not video_path.exists():
+        video_path.open(mode="wb").write(response.content)
+        logging.info("Wrote video to %s", video_path)
+    else:
+        logging.info("Video already exists, skipping (%s)", video_path)
 
 
 def get_photo_url(full_size_url: str, cookies: list) -> str:
