@@ -42,6 +42,7 @@ class Sentinel(object):
 @click.command()
 @click.argument("username")
 @click.argument("password", envvar="FB_PASSWORD")
+@click.argument("tfa_code")
 @click.argument("directory", type=click.Path(exists=True))
 @click.option(
     "--workers",
@@ -60,9 +61,9 @@ class Sentinel(object):
     type=int,
     help="Initial photo offset (default is 0).",
 )
-def photos_of_me(username, password, directory, workers: int, wait: bool, offset: int):
+def photos_of_me(username, password, tfa_code, directory, workers: int, wait: bool, offset: int):
     """Download "photos of me" to DIRECTORY, using Facebook credentials
-    USERNAME and PASSWORD.
+    USERNAME and PASSWORD, and temporary TFA_CODE
 
     Instead of supplying PASSWORD on the command line, you can set the FB_PASSWORD
     environment variable:
@@ -70,11 +71,13 @@ def photos_of_me(username, password, directory, workers: int, wait: bool, offset
         read -s FB_PASSWORD
 
         (Type your password, and then press <ENTER>.)
+    
+    USAGE
 
-        python photos-of-me.py me@mydomain.com $FB_PASSWORD
+        photos-of-me.py [OPTIONS] USERNAME PASSWORD TFA_CODE DIRECTORY
     """
     driver = chrome_driver()
-    sign_in_to_facebook(driver, username, password)
+    sign_in_to_facebook(driver, username, password, tfa_code)
     cookies = driver.get_cookies()
     # Create worker threads to process photo URLs.
     photo_page_queue_workers = [
@@ -134,7 +137,7 @@ def get_offset_photos_of_you_page(first_page_url: str, offset: int) -> str:
     )
 
 
-def sign_in_to_facebook(driver: webdriver.Chrome, username: str, password: str) -> None:
+def sign_in_to_facebook(driver: webdriver.Chrome, username: str, password: str, tfa_code: str) -> None:
     """Signs in to Facebook with `username` and `password`."""
     driver.get("https://mbasic.facebook.com/")
     driver.find_element_by_css_selector("input[name='email']").send_keys(username)
@@ -143,6 +146,37 @@ def sign_in_to_facebook(driver: webdriver.Chrome, username: str, password: str) 
     driver.find_element_by_css_selector("input[name='login']").click()
     # Wait until title changes.
     Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
+
+    # Start the flow with 2FA codes, can omit if not using
+
+    # 2FA page
+    title = driver.title
+    driver.find_element_by_css_selector("input[name='approvals_code']").send_keys(tfa_code)
+    driver.find_element_by_css_selector("input[name='submit[Submit Code]']").click()
+    Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
+
+    # Save browser page
+    driver.find_element_by_css_selector("input[name='submit[Continue]']").click()
+    Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
+    
+    # These pop-up sometimes, not sure exactly when, so optionally traverse them
+    try:
+        # Review login page
+        driver.find_element_by_css_selector("input[name='submit[Continue]']").click()
+        Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
+        
+        # Review login page
+        driver.find_element_by_css_selector("input[name='submit[This was me]']").click()
+        Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
+
+        # 2nd Review login page
+        driver.find_element_by_css_selector("input[name='submit[Continue]']").click()
+        Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
+    except:
+        print("not sure about that 2nd review page")
+
+    # end 2FA flow
+
     # Just go here again to skip that "one tap login" bullshit.
     driver.get("https://mbasic.facebook.com/")
     logging.info("Signed in to Bookface")
@@ -153,7 +187,7 @@ def go_to_photos_of_you(driver: webdriver.Chrome) -> None:
     # Go to "Menu".
     driver.get("https://mbasic.facebook.com/menu/bookmarks/")
     # Click "Photos" link.
-    driver.find_element_by_css_selector("div.bq > div:nth-child(2) > a").click()
+    driver.find_element_by_css_selector("div.bp > div:nth-child(2) > a").click()
     # Click "See All (XXX)" link.
     driver.find_element_by_css_selector(
         "div:not([title='Uploads']) > section.ct > a"

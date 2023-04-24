@@ -1,6 +1,8 @@
 # photos-of-me
 
-This repository was forked from https://github.com/jcontini/facebook-photos-download.
+This repository has been forked twice, originally from https://github.com/jcontini/facebook-photos-download, and then from an updated fork of that, https://github.com/eidorb/photos-of-me.
+
+This was working with 2FA enabled on my account, as of April 2023. Occasionally errors occur, where Facebook may throw a browser error and therefore parsing stops. You can note the last working offset number and try again, resuming from that spot later. This may be due to rate limiting or other bot detection.
 
 This tool allows you to download all "photos of you" from Facebook (and videos too!). Photos are populated with EXIF data to preserve dates, captions and uploader name.
 
@@ -23,10 +25,10 @@ Then do the following:
 ## Usage
 
 ```
-Usage: photos-of-me.py [OPTIONS] USERNAME PASSWORD DIRECTORY
+Usage: photos-of-me.py [OPTIONS] USERNAME PASSWORD TFA_CODE DIRECTORY
 
   Download "photos of me" to DIRECTORY, using Facebook credentials USERNAME
-  and PASSWORD.
+  and PASSWORD, and temporary TFA_CODE.
 
   Instead of supplying PASSWORD on the command line, you can set the
   FB_PASSWORD environment variable:
@@ -35,7 +37,7 @@ Usage: photos-of-me.py [OPTIONS] USERNAME PASSWORD DIRECTORY
 
       (Type your password, and then press <ENTER>.)
 
-      python photos-of-me.py me@mydomain.com $FB_PASSWORD photos
+      python photos-of-me.py me@mydomain.com $FB_PASSWORD 123456 photos
 
 Options:
   --workers INTEGER   Number of concurrent worker threads (default is 1).
