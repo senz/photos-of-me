@@ -21,14 +21,15 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait as Wait
 from urllib.parse import urlparse, parse_qs
+from selenium.webdriver.common.by import By
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s:%(levelname)s:%(name)s:%(threadName)s:%(message)s",
 )
 
 # WebDriverWait timeout in seconds.
-WAIT_TIMEOUT = 10
+WAIT_TIMEOUT = 100
 
 # Queue of URLs to photo pages.
 photo_page_queue = queue.SimpleQueue()
@@ -43,7 +44,7 @@ class Sentinel(object):
 @click.command()
 @click.argument("username")
 @click.argument("password", envvar="FB_PASSWORD")
-@click.argument("tfa_code")
+@click.argument("tfa_code", envvar="FB_TFA_CODE")
 @click.argument("directory", type=click.Path(exists=True))
 @click.option(
     "--workers",
@@ -62,7 +63,18 @@ class Sentinel(object):
     type=int,
     help="Initial photo offset (default is 0).",
 )
-def photos_of_me(username, password, tfa_code, directory, workers: int, wait: bool, offset: int):
+@click.option(
+    "--log-level",
+    default="INFO",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
+    help="Set the logging level (default is INFO).",
+)
+@click.option(
+    "--detach/--no-detach",
+    default=False,
+    help="Detach the Chrome browser (default is no detach).",
+)
+def photos_of_me(username, password, tfa_code, directory, workers: int, wait: bool, offset: int, detach: bool, log_level: str):
     """Download "photos of me" to DIRECTORY, using Facebook credentials
     USERNAME and PASSWORD, and temporary TFA_CODE
 
@@ -77,14 +89,15 @@ def photos_of_me(username, password, tfa_code, directory, workers: int, wait: bo
 
         photos-of-me.py [OPTIONS] USERNAME PASSWORD TFA_CODE DIRECTORY
     """
-    driver = chrome_driver()
+    logging.getLogger().setLevel(log_level)
+    driver = chrome_driver(detach)
     sign_in_to_facebook(driver, username, password, tfa_code)
     cookies = driver.get_cookies()
     # Create worker threads to process photo URLs.
     photo_page_queue_workers = [
         threading.Thread(
             target=process_photo_page_queue,
-            args=(cookies, directory, wait),
+            args=(cookies, directory, wait, detach),
             daemon=True,
         )
         for _ in range(workers)
@@ -115,9 +128,11 @@ def photos_of_me(username, password, tfa_code, directory, workers: int, wait: bo
         worker.join()
 
 
-def chrome_driver() -> webdriver.Chrome:
+def chrome_driver(detach: bool) -> webdriver.Chrome:
     """Returns instance of Chrome webdriver."""
     options = chrome_options.Options()
+    if detach:
+        options.add_experimental_option("detach", True)
     options.add_argument("--disable-notifications")
     options.add_argument("--disable-infobars")
     options.add_argument("--mute-audio")
@@ -141,10 +156,16 @@ def get_offset_photos_of_you_page(first_page_url: str, offset: int) -> str:
 def sign_in_to_facebook(driver: webdriver.Chrome, username: str, password: str, tfa_code: str) -> None:
     """Signs in to Facebook with `username` and `password`."""
     driver.get("https://mbasic.facebook.com/")
-    driver.find_element_by_css_selector("input[name='email']").send_keys(username)
-    driver.find_element_by_css_selector("input[name='pass']").send_keys(password)
+    try:
+        accept_button = driver.find_element(By.CSS_SELECTOR, "button[name='accept_only_essential']")
+        accept_button.click()
+    except NoSuchElementException:
+        pass
+    Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is('test'))
+    driver.find_element(By.CSS_SELECTOR, "input[name='email']").send_keys(username)
+    driver.find_element(By.CSS_SELECTOR, "input[name='pass']").send_keys(password)
     title = driver.title
-    driver.find_element_by_css_selector("input[name='login']").click()
+    driver.find_element(By.CSS_SELECTOR, "input[name='login']").click()
     # Wait until title changes.
     Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
 
@@ -152,26 +173,26 @@ def sign_in_to_facebook(driver: webdriver.Chrome, username: str, password: str, 
 
     # 2FA page
     title = driver.title
-    driver.find_element_by_css_selector("input[name='approvals_code']").send_keys(tfa_code)
-    driver.find_element_by_css_selector("input[name='submit[Submit Code]']").click()
+    driver.find_element(By.CSS_SELECTOR, "input[name='approvals_code']").send_keys(tfa_code)
+    driver.find_element(By.CSS_SELECTOR, "input[name='submit[Submit Code]']").click()
     Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
 
     # Save browser page
-    driver.find_element_by_css_selector("input[name='submit[Continue]']").click()
+    driver.find_element(By.CSS_SELECTOR, "input[name='submit[Continue]']").click()
     Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
     
     # These pop-up sometimes, not sure exactly when, so optionally traverse them
     try:
         # Review login page
-        driver.find_element_by_css_selector("input[name='submit[Continue]']").click()
+        driver.find_element(By.CSS_SELECTOR, "input[name='submit[Continue]']").click()
         Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
         
         # Review login page
-        driver.find_element_by_css_selector("input[name='submit[This was me]']").click()
+        driver.find_element(By.CSS_SELECTOR, "input[name='submit[This was me]']").click()
         Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
 
         # 2nd Review login page
-        driver.find_element_by_css_selector("input[name='submit[Continue]']").click()
+        driver.find_element(By.CSS_SELECTOR, "input[name='submit[Continue]']").click()
         Wait(driver, timeout=WAIT_TIMEOUT).until_not(EC.title_is(title))
     except:
         print("not sure about that 2nd review page")
@@ -188,10 +209,10 @@ def go_to_photos_of_you(driver: webdriver.Chrome) -> None:
     # Go to "Menu".
     driver.get("https://mbasic.facebook.com/menu/bookmarks/")
     # Click "Photos" link.
-    driver.find_element_by_css_selector("div.bp > div:nth-child(2) > a").click()
+    driver.find_element(By.XPATH, "//a[contains(@href, '/photos')]").click()
     # Click "See All (XXX)" link.
-    driver.find_element_by_css_selector(
-        "div:not([title='Uploads']) > section.ct > a"
+    driver.find_element(By.CSS_SELECTOR, 
+        "div:not([title='Uploads']) > section > a"
     ).click()
     logging.info("Arrived at first page of photos of you")
 
@@ -204,7 +225,7 @@ def get_photo_urls(driver: webdriver.Chrome, url: str) -> List[str]:
     driver.get(url)
     urls = [
         element.get_attribute("href")
-        for element in driver.find_elements_by_css_selector("td.s > div > a")
+        for element in driver.find_elements(By.CSS_SELECTOR, "td.s > div > a")
     ]
     logging.info("Scraped %s photo urls from %s", len(urls), driver.current_url)
     return urls
@@ -226,18 +247,18 @@ def get_media_details(driver: webdriver.Chrome, url: str) -> Media:
     """
     driver.get(url)
     fbid = parse_qs(urlparse(url).query).get("fbid", [None])[0]
-    og_type = driver.find_element_by_css_selector(
+    og_type = driver.find_element(By.CSS_SELECTOR, 
         'head > meta[property="og:type"]'
     ).get_attribute("content")
     if not og_type.startswith("video"):
         return Media(
             type="photo",
-            actor=driver.find_element_by_css_selector("a > strong").text,
-            caption=driver.find_element_by_css_selector("div.msg > div").text
+            actor=driver.find_element(By.CSS_SELECTOR, "a > strong").text,
+            caption=driver.find_element(By.CSS_SELECTOR, "div.msg > div").text
             + "\nDownloaded from Facebook fbid={}".format(fbid),
-            date=driver.find_element_by_css_selector("abbr").text,
+            date=driver.find_element(By.CSS_SELECTOR, "abbr").text,
             # Is this getting full size? We could follow 'head > link[p="canonical"]' and download from there?
-            full_size_url=driver.find_element_by_css_selector(
+            full_size_url=driver.find_element(By.CSS_SELECTOR, 
                 'head > meta[property="og:image"]'
             ).get_attribute("content"),
             # We need cookies for authenticated requests ;)
@@ -247,12 +268,12 @@ def get_media_details(driver: webdriver.Chrome, url: str) -> Media:
         # Video export broken as of 2024-02-11
         return Media(
             type="video",
-            actor=driver.find_element_by_css_selector("strong > a").text,
-            caption=driver.find_element_by_css_selector(
+            actor=driver.find_element(By.CSS_SELECTOR, "strong > a").text,
+            caption=driver.find_element(By.CSS_SELECTOR, 
                 "div> a[aria-label]"
             ).get_attribute("aria-label"),
-            date=driver.find_element_by_css_selector("abbr").text,
-            full_size_url=driver.find_element_by_css_selector(
+            date=driver.find_element(By.CSS_SELECTOR, "abbr").text,
+            full_size_url=driver.find_element(By.CSS_SELECTOR, 
                 "div> a[aria-label]"
             ).get_attribute("href"),
             # We need cookies for authenticated requests ;)
@@ -260,7 +281,7 @@ def get_media_details(driver: webdriver.Chrome, url: str) -> Media:
         )
 
 
-def process_photo_page_queue(cookies: list, directory: str, wait: bool):
+def process_photo_page_queue(cookies: list, directory: str, wait: bool, detach: bool):
     """Processes pages in photo page queue.
 
     - Spawn a Selenium webdriver
@@ -273,7 +294,7 @@ def process_photo_page_queue(cookies: list, directory: str, wait: bool):
 
     Wait a random amount of time between queue items if `wait` is True.
     """
-    driver = chrome_driver()
+    driver = chrome_driver(detach)
     # First, go to a domain that cookies apply to.
     driver.get("https://mbasic.facebook.com/")
     for cookie in cookies:
